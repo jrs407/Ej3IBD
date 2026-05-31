@@ -1,0 +1,91 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    restart: unless-stopped
+
+  bd:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminadmin123
+      DOCKER_INFLUXDB_INIT_ORG: ej3
+      DOCKER_INFLUXDB_INIT_BUCKET: market
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ej3-influxdb-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    restart: unless-stopped
+
+  ingesta:
+    build:
+      context: ./Ingesta
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: trades
+      FINNHUB_TOKEN: ${FINNHUB_TOKEN:-}
+      SYMBOLS: BINANCE:BTCUSDT,AAPL,INTC
+    restart: unless-stopped
+
+  procesamiento:
+    build:
+      context: ./Procesamiento
+    depends_on:
+      - kafka
+      - bd
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: trades
+      INFLUXDB_URL: http://bd:8086
+      INFLUXDB_ORG: ej3
+      INFLUXDB_BUCKET: market
+      INFLUXDB_TOKEN: ej3-influxdb-token
+    restart: unless-stopped
+
+  grafana:
+    build:
+      context: ./Grafana
+    depends_on:
+      - bd
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: adminadmin
+      INFLUXDB_URL: http://bd:8086
+      INFLUXDB_ORG: ej3
+      INFLUXDB_BUCKET: market
+      INFLUXDB_TOKEN: ej3-influxdb-token
+    volumes:
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  influxdb-data:
+  grafana-data:
